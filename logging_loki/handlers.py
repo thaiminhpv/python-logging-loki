@@ -86,6 +86,7 @@ class LokiBatchHandler(logging.Handler):
         headers: dict | None = None,
         verify_ssl: bool = True,
         flush_interval: float = 5.0,
+        verbose: bool = False,
     ):
         """
         Create new Loki batch logging handler.
@@ -97,9 +98,14 @@ class LokiBatchHandler(logging.Handler):
             headers: Optional dict with HTTP headers to send.
             verify_ssl: If set to False, the endpoint's SSL certificates are not verified.
             flush_interval: Time interval in seconds between automatic flushes (default: 5.0).
+            verbose: Enable verbose debug logging for the handler and emitter.
         """
         super().__init__()
-        self.emitter = emitter.LokiBatchEmitter(url, tags, auth, headers, verify_ssl, flush_interval)
+        self.verbose = verbose
+        self._logger = logging.getLogger("logging_loki.batch_handler")
+        self.emitter = emitter.LokiBatchEmitter(url, tags, auth, headers, verify_ssl, flush_interval, verbose)
+        if self.verbose:
+            self._logger.debug("LokiBatchHandler initialized")
 
     def handleError(self, record):  # noqa: N802
         """Close emitter and let default handler take actions on error."""
@@ -110,16 +116,22 @@ class LokiBatchHandler(logging.Handler):
         """Buffer log record for batch sending to Loki."""
         # noinspection PyBroadException
         try:
+            if self.verbose:
+                self._logger.debug("Listener received record: logger=%s, level=%s, msg=%s", record.name, record.levelname, record.getMessage()[:100])
             self.emitter(record, self.format(record))
         except Exception:
             self.handleError(record)
 
     def flush(self):
         """Manually flush all buffered records to Loki."""
+        if self.verbose:
+            self._logger.debug("Manual flush requested")
         self.emitter.flush()
 
     def close(self):
         """Close the handler and flush remaining records."""
+        if self.verbose:
+            self._logger.debug("Closing LokiBatchHandler")
         self.emitter.close()
         super().close()
 
@@ -130,24 +142,39 @@ class LokiBatchQueueHandler(QueueHandler):
     This handler automatically creates a listener and `LokiBatchHandler` to handle logs queue.
     """
 
-    def __init__(self, queue: Queue, flush_interval: float = 5.0, **kwargs):
+    def __init__(self, queue: Queue, flush_interval: float = 5.0, verbose: bool = False, **kwargs):
         """
         Create new logger handler with the specified queue and kwargs for the `LokiBatchHandler`.
 
         Arguments:
             queue: Queue instance to buffer log records.
             flush_interval: Time interval in seconds between automatic flushes (default: 5.0).
+            verbose: Enable verbose debug logging for the handler, listener, and emitter.
             **kwargs: Additional arguments passed to LokiBatchHandler (url, tags, auth, headers, verify_ssl).
         """
         super().__init__(queue)
-        self.handler = LokiBatchHandler(flush_interval=flush_interval, **kwargs)
+        self.verbose = verbose
+        self._logger = logging.getLogger("logging_loki.batch_queue_handler")
+        self.handler = LokiBatchHandler(flush_interval=flush_interval, verbose=verbose, **kwargs)
         self.listener = QueueListener(self.queue, self.handler)
         self.listener.start()
+        if self.verbose:
+            self._logger.debug("LokiBatchQueueHandler initialized: flush_interval=%s, listener started", flush_interval)
+
+    def emit(self, record: logging.LogRecord):
+        """Enqueue the log record for async processing."""
+        if self.verbose:
+            self._logger.debug("Enqueueing record: logger=%s, level=%s", record.name, record.levelname)
+        super().emit(record)
 
     def close(self):
         """Stop the listener and close the handler."""
+        if self.verbose:
+            self._logger.debug("Closing LokiBatchQueueHandler, stopping listener...")
         # Only stop if the listener's thread is running (guard against multiple close calls)
         if self.listener._thread is not None:
             self.listener.stop()
         self.handler.close()
         super().close()
+        if self.verbose:
+            self._logger.debug("LokiBatchQueueHandler closed")

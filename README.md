@@ -25,7 +25,7 @@ Send Python logs directly to [Grafana Loki](https://grafana.com/loki) with minim
 ## 📦 Installation
 
 ```bash
-pip install python-logging-loki-v2
+pip install git+https://github.com/thaiminhpv/python-logging-loki.git
 ```
 
 ---

@@ -17,6 +17,7 @@ Send Python logs directly to [Grafana Loki](https://grafana.com/loki) with minim
 - 🔐 **Authentication Support** - Basic auth and custom headers
 - 🏷️ **Custom Labels** - Flexible tagging system
 - ⚡ **Async Support** - Non-blocking queue handler included
+- 📦 **Batch Support** - Efficient batching with configurable flush intervals
 - 🔒 **SSL Verification** - Configurable SSL/TLS settings
 - 🎯 **Multi-tenant** - Support for Loki multi-tenancy
 
@@ -71,9 +72,42 @@ logger.addHandler(handler)
 logger.info("Non-blocking log message")
 ```
 
+### Batch Mode (Recommended for High-throughput)
+
+For optimal performance, use the batch handler which buffers logs and sends them in batches at configurable intervals. Logs are automatically grouped by their labels for efficient Loki ingestion:
+
+```python
+import logging
+import logging_loki
+from multiprocessing import Queue
+
+handler = logging_loki.LokiBatchQueueHandler(
+    Queue(-1),
+    url="https://loki.example.com/loki/api/v1/push",
+    tags={"app": "my-application"},
+    flush_interval=5.0,  # Flush every 5 seconds (default)
+)
+
+logger = logging.getLogger("my-app")
+logger.addHandler(handler)
+
+# Logs are buffered and sent in batches
+logger.info("Message 1")
+logger.info("Message 2")
+logger.error("Error message")  # Different label (severity), goes to separate stream
+```
+
+**Benefits of batch mode:**
+- Reduces HTTP overhead by combining multiple logs into single requests
+- Groups logs by labels into streams for efficient Loki ingestion
+- Non-blocking with background flush timer
+- Automatic retry on flush failure (buffer is preserved)
+
 ---
 
 ## ⚙️ Configuration Options
+
+### LokiHandler / LokiQueueHandler
 
 | Parameter | Type | Default | Description |
 |-----------|------|---------|-------------|
@@ -83,6 +117,12 @@ logger.info("Non-blocking log message")
 | `headers` | `dict` | `None` | Custom HTTP headers (e.g., for multi-tenancy) |
 | `version` | `str` | `"1"` | Loki API version (`"0"`, `"1"`, or `"2"`) |
 | `verify_ssl` | `bool` | `True` | Enable/disable SSL certificate verification |
+
+### LokiBatchQueueHandler (additional options)
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `flush_interval` | `float` | `5.0` | Seconds between automatic batch flushes |
 
 ---
 
